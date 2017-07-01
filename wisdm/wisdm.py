@@ -31,6 +31,9 @@ import csv
 import pandas as pd
 from tensorflow.python.platform import gfile
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import Imputer
+from sklearn.preprocessing import StandardScaler
 import scipy
 
 class DataSet(object):
@@ -108,62 +111,63 @@ class DataSet(object):
       return self._data[start:end], self._labels[start:end]
 
 
-def read_data_sets(train_dir,
+def read_data_sets(csv,
                    dtype=dtypes.float32,
                    validation_size=500,
                    seed=None):
 
-  csvfilename = train_dir + '/' + 'wisdm1k.csv'
+    wisdm = pd.read_csv(csv, comment='@', skip_blank_lines=True, header=None, na_values='?')
 
-  wisdm = base.load_csv_without_header(csvfilename,
-                                      target_dtype=np.str,
-                                      features_dtype=np.float32)
-  data = wisdm.data.astype(np.float32)
-  data = scipy.delete(data, [0, 1], 1) # First 2 columns are useless, remove.
+    # 1. extract labels of each sample, encode from strings to numbers
+    wisdm_label_col = wisdm.shape[1] - 1
+    labels_str = wisdm[wisdm_label_col].copy()
+    le = LabelEncoder()
+    labels = le.fit_transform(labels_str)
 
-  # Enumerate target classifications from text to 0..n 
-  labels = wisdm.target.astype(np.str)
-  one_hot = np.asarray(pd.get_dummies(labels), np.uint32)
-  labels = np.where(one_hot != 0)[1]
+    # 2. delete the first two columns, and the label column (last)
+    data = wisdm.drop([wisdm_label_col,0,1], axis=1)
 
-  print("data shape ", data.shape)
-  print("target shape ", labels.shape)
+    # 3. Impute empty values with mean
+    im = Imputer(strategy="median")
+    im.fit(data)
+    data = im.transform(data)
+    data = data.astype(np.float32)
+    print("Data file: ", csv, len(data), " samples,", data.shape[1], " features:",
+          len(le.classes_), "labels")
 
-  validation_size = int(len(data) * 0.1)
-  print("validation size", validation_size)
+    validation_size = int(len(data) * 0.1)
 
-  if not 0 <= validation_size <= len(data):
-    raise ValueError(
-        'Validation size should be between 0 and {}. Received: {}.'
-        .format(len(data), validation_size))
+    if not 0 <= validation_size <= len(data):
+        raise ValueError(
+            'Validation size should be between 0 and {}. Received: {}.'
+            .format(len(data), validation_size))
 
-  validation_data = data[:validation_size]
-  validation_labels = labels[:validation_size]
-  train_data = data[validation_size:]
-  train_labels = labels[validation_size:]
+    validation_data = data[:validation_size]
+    validation_labels = labels[:validation_size]
+    train_data = data[validation_size:]
+    train_labels = labels[validation_size:]
 
-  options = dict(dtype=dtype, seed=seed)
+    options = dict(dtype=dtype, seed=seed)
 
-  # Split using train_test_split
-  # RANDOM_SEED=42
-  X_train, X_test, y_train, y_test = train_test_split(
+    # Split using train_test_split
+    # RANDOM_SEED=42
+    X_train, X_test, y_train, y_test = train_test_split(
         train_data, train_labels, test_size=0.2)
 
-  validation_data = X_train[:validation_size]
-  validation_labels = y_train[:validation_size]
-  X_train = X_train[validation_size:]
-  y_train = y_train[validation_size:]
+    validation_data = X_train[:validation_size]
+    validation_labels = y_train[:validation_size]
+    X_train = X_train[validation_size:]
+    y_train = y_train[validation_size:]
 
-  print("training set shape ", X_train.shape)
-  print("test set shape ", X_test.shape)
-  print("validation set shape ", validation_data.shape)
+    print("training set: ", X_train.shape[0], "test set: ",  X_test.shape[0],
+          "validation set: ", validation_data.shape[0])
 
-  train = DataSet(X_train, y_train, **options)
-  test = DataSet(X_test, y_test, **options)
-  validation = DataSet(validation_data, validation_labels, **options)
+    train = DataSet(X_train, y_train, **options)
+    test = DataSet(X_test, y_test, **options)
+    validation = DataSet(validation_data, validation_labels, **options)
 
-  return base.Datasets(train=train, validation=validation, test=test)
+    return base.Datasets(train=train, validation=validation, test=test)
 
 
-def load_wisdm(train_dir='/tmp/data'):
-  return read_data_sets(train_dir)
+def load_wisdm(wisdmFilename):
+  return read_data_sets(csv = wisdmFilename)

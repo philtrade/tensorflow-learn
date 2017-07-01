@@ -20,6 +20,7 @@ from __future__ import print_function
 import argparse
 import sys
 import tempfile
+import numpy as np
 
 from tensorflow.contrib.learn.python.learn import metric_spec
 from tensorflow.contrib.learn.python.learn.estimators import estimator
@@ -31,13 +32,13 @@ from tensorflow.python.platform import app
 
 FLAGS = None
 
-def build_estimator(model_dir):
+def build_estimator(model_dir, nclasses, nfeatures):
   """Build an estimator."""
 
   print("Num trees: ", FLAGS.num_trees)
 
   params = tensor_forest.ForestHParams(
-      num_classes=6, num_features=43,
+      num_classes=nclasses, num_features=nfeatures,
       num_trees=FLAGS.num_trees, max_nodes=FLAGS.max_nodes)
 
   if FLAGS.use_training_loss:
@@ -52,15 +53,18 @@ def build_estimator(model_dir):
       model_dir=model_dir))
 
 
-def train_and_eval():
+def train_and_eval(wisdmFilename='../data/wisdm.txt'):
+
+  wisdm = read_data_sets(csv = wisdmFilename)
+  nclasses = len(np.unique(wisdm.train.labels))
+  nfeatures = wisdm.train.data.shape[1]
+
   """Train and evaluate the model."""
   model_dir = FLAGS.model_dir or tempfile.mkdtemp()
   print('model directory = %s' % model_dir)
 
-  est = build_estimator(model_dir)
-
-  wisdm = read_data_sets(FLAGS.data_dir)
-
+  print(nclasses,' classes from ', nfeatures, 'features')
+  est = build_estimator(model_dir, nclasses, nfeatures)
   est.fit(x=wisdm.train.data, y=wisdm.train.labels,
           batch_size=FLAGS.batch_size)
   print('Done Fitting\n')
@@ -79,7 +83,7 @@ def train_and_eval():
     print('%s: %s' % (key, results[key]))
 
 def main(_):
-  train_and_eval()
+  train_and_eval(FLAGS.data)
 
 
 if __name__ == '__main__':
@@ -96,6 +100,13 @@ if __name__ == '__main__':
       default='/tmp/data/',
       help='Directory for storing data'
   )
+
+  parser.add_argument(
+        '--data',
+        type=str,
+        help='path to data file'
+  )
+
   parser.add_argument(
       '--train_steps',
       type=int,
