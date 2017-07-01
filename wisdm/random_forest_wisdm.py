@@ -20,15 +20,15 @@ from __future__ import print_function
 import argparse
 import sys
 import tempfile
-import numpy as np
 
 from tensorflow.contrib.learn.python.learn import metric_spec
 from tensorflow.contrib.learn.python.learn.estimators import estimator
 from tensorflow.contrib.tensor_forest.client import eval_metrics
 from tensorflow.contrib.tensor_forest.client import random_forest
 from tensorflow.contrib.tensor_forest.python import tensor_forest
-from wisdm import read_data_sets
 from tensorflow.python.platform import app
+
+from wisdm import read_data_sets
 
 FLAGS = None
 
@@ -52,21 +52,27 @@ def build_estimator(model_dir, nclasses, nfeatures):
       params, graph_builder_class=graph_builder_class,
       model_dir=model_dir))
 
-
 def train_and_eval(wisdmFilename='../data/wisdm.txt'):
 
   wisdm = read_data_sets(csv = wisdmFilename)
-  nclasses = len(np.unique(wisdm.train.labels))
-  nfeatures = wisdm.train.data.shape[1]
+
+  all_data = wisdm.data # all_data is a Datasplit tuple in wisdm.py
+  all_labels = wisdm.labels # all_labels is a Datasplit tuple in wisdm.py
+  nclasses = wisdm.n_classes
+  nfeatures = wisdm.n_features
+
+  print(nclasses,' classes from ', nfeatures, 'features')
 
   """Train and evaluate the model."""
   model_dir = FLAGS.model_dir or tempfile.mkdtemp()
   print('model directory = %s' % model_dir)
 
-  print(nclasses,' classes from ', nfeatures, 'features')
+
   est = build_estimator(model_dir, nclasses, nfeatures)
-  est.fit(x=wisdm.train.data, y=wisdm.train.labels,
+
+  est.fit(x=all_data.train, y=all_labels.train,
           batch_size=FLAGS.batch_size)
+
   print('Done Fitting\n')
 
   metric_name = 'accuracy'
@@ -76,9 +82,10 @@ def train_and_eval(wisdmFilename='../data/wisdm.txt'):
 
   metric = {metric_name: mspec}
 
-  results = est.score(x=wisdm.test.data, y=wisdm.test.labels,
+  results = est.score(x=all_data.test, y=all_labels.test,
                       # batch_size=FLAGS.batch_size,
                       metrics=metric)
+
   for key in sorted(results):
     print('%s: %s' % (key, results[key]))
 

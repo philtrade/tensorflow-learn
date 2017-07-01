@@ -19,100 +19,24 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gzip
-
+import collections
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
-from tensorflow.contrib.learn.python.learn.datasets import base
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import random_seed
 import csv
 import pandas as pd
-from tensorflow.python.platform import gfile
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import Imputer
 from sklearn.preprocessing import StandardScaler
 import scipy
 
-class DataSet(object):
-
-  def __init__(self,
-               data,
-               labels,
-               dtype=dtypes.float32,
-               seed=None):
-    """Construct a DataSet.
-     Seed arg provides for convenient deterministic testing.
-    """
-    seed1, seed2 = random_seed.get_seed(seed)
-    # If op level seed is not set, use whatever graph level seed is returned
-    np.random.seed(seed1 if seed is None else seed2)
-
-    assert data.shape[0] == labels.shape[0], (
-          'data.shape: %s labels.shape: %s' % (data.shape, labels.shape))
-
-    self._num_examples = data.shape[0]
-    self._data = data
-    self._labels = labels
-    self._epochs_completed = 0
-    self._index_in_epoch = 0
-
-  @property
-  def data(self):
-    return self._data
-
-  @property
-  def labels(self):
-    return self._labels
-
-  @property
-  def num_examples(self):
-    return self._num_examples
-
-  @property
-  def epochs_completed(self):
-    return self._epochs_completed
-
-  def next_batch(self, batch_size, fake_data=False, shuffle=True):
-    """Return the next `batch_size` examples from this data set."""
-    start = self._index_in_epoch
-    # Shuffle for the first epoch
-    if self._epochs_completed == 0 and start == 0 and shuffle:
-      perm0 = np.arange(self._num_examples)
-      np.random.shuffle(perm0)
-      self._data = self.data[perm0]
-      self._labels = self.labels[perm0]
-    # Go to the next epoch
-    if start + batch_size > self._num_examples:
-      # Finished epoch
-      self._epochs_completed += 1
-      # Get the rest examples in this epoch
-      rest_num_examples = self._num_examples - start
-      data_rest_part = self._data[start:self._num_examples]
-      labels_rest_part = self._labels[start:self._num_examples]
-      # Shuffle the data
-      if shuffle:
-        perm = np.arange(self._num_examples)
-        np.random.shuffle(perm)
-        self._data = self.data[perm]
-        self._labels = self.labels[perm]
-      # Start next epoch
-      start = 0
-      self._index_in_epoch = batch_size - rest_num_examples
-      end = self._index_in_epoch
-      data_new_part = self._data[start:end]
-      labels_new_part = self._labels[start:end]
-      return np.concatenate((data_rest_part, data_new_part), axis=0) , np.concatenate((labels_rest_part, labels_new_part), axis=0)
-    else:
-      self._index_in_epoch += batch_size
-      end = self._index_in_epoch
-      return self._data[start:end], self._labels[start:end]
-
+Datasplit = collections.namedtuple('Datasplit', ['train', 'validation', 'test'])
+Datasets = collections.namedtuple('Datasets',
+                                  ['data', 'labels',
+                                   'n_features', 'n_classes',
+                                   'label_mapping'])
 
 def read_data_sets(csv,
-                   dtype=dtypes.float32,
                    validation_size=500,
                    seed=None):
 
@@ -132,8 +56,11 @@ def read_data_sets(csv,
     im.fit(data)
     data = im.transform(data)
     data = data.astype(np.float32)
-    print("Data file: ", csv, len(data), " samples,", data.shape[1], " features:",
-          len(le.classes_), "labels")
+    nf = data.shape[1]
+    nc = len(le.classes_)
+
+    print("Data file: ", csv, len(data), " samples,",
+          nf, " features,", nc, " labels")
 
     validation_size = int(len(data) * 0.1)
 
@@ -147,10 +74,7 @@ def read_data_sets(csv,
     train_data = data[validation_size:]
     train_labels = labels[validation_size:]
 
-    options = dict(dtype=dtype, seed=seed)
-
     # Split using train_test_split
-    # RANDOM_SEED=42
     X_train, X_test, y_train, y_test = train_test_split(
         train_data, train_labels, test_size=0.2)
 
@@ -162,12 +86,14 @@ def read_data_sets(csv,
     print("training set: ", X_train.shape[0], "test set: ",  X_test.shape[0],
           "validation set: ", validation_data.shape[0])
 
-    train = DataSet(X_train, y_train, **options)
-    test = DataSet(X_test, y_test, **options)
-    validation = DataSet(validation_data, validation_labels, **options)
+    corpus_data = Datasplit(train=X_train,
+                            validation=validation_data,
+                            test=X_test)
 
-    return base.Datasets(train=train, validation=validation, test=test)
+    corpus_labels = Datasplit(train=y_train,
+                              validation=validation_labels,
+                              test=y_test)
 
-
-def load_wisdm(wisdmFilename):
-  return read_data_sets(csv = wisdmFilename)
+    return Datasets(data = corpus_data,
+                    labels = corpus_labels,label_mapping = le.classes_,
+                    n_classes = nc, n_features = nf)
