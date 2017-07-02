@@ -29,6 +29,10 @@ from tensorflow.contrib.tensor_forest.python import tensor_forest
 from tensorflow.python.platform import app
 
 from wisdm import read_data_sets
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.grid_search import GridSearchCV
+import time
 
 FLAGS = None
 
@@ -63,31 +67,63 @@ def train_and_eval(wisdmFilename='../data/wisdm.txt'):
 
   print(nclasses,' classes from ', nfeatures, 'features')
 
-  """Train and evaluate the model."""
-  model_dir = FLAGS.model_dir or tempfile.mkdtemp()
-  print('model directory = %s' % model_dir)
+  if FLAGS.estimator == 'tensorflow':
+      """Train and evaluate the model."""
+      model_dir = FLAGS.model_dir or tempfile.mkdtemp()
+      print('model directory = %s' % model_dir)
 
+      tf_start = time.time()
+      est = build_estimator(model_dir, nclasses, nfeatures)
 
-  est = build_estimator(model_dir, nclasses, nfeatures)
+      est.fit(x=all_data.train, y=all_labels.train,
+              batch_size=FLAGS.batch_size)
 
-  est.fit(x=all_data.train, y=all_labels.train,
-          batch_size=FLAGS.batch_size)
+      print('Done Fitting\n')
 
-  print('Done Fitting\n')
+      metric_name = 'accuracy'
+      mspec = metric_spec.MetricSpec(
+        eval_metrics.get_metric(metric_name),
+        prediction_key=eval_metrics.get_prediction_key(metric_name))
 
-  metric_name = 'accuracy'
-  mspec = metric_spec.MetricSpec(
-    eval_metrics.get_metric(metric_name),
-    prediction_key=eval_metrics.get_prediction_key(metric_name))
+      metric = {metric_name: mspec}
 
-  metric = {metric_name: mspec}
+      results = est.score(x=all_data.test, y=all_labels.test,
+                          # batch_size=FLAGS.batch_size,
+                          metrics=metric)
 
-  results = est.score(x=all_data.test, y=all_labels.test,
-                      # batch_size=FLAGS.batch_size,
-                      metrics=metric)
+      tf_end = time.time()
 
-  for key in sorted(results):
-    print('%s: %s' % (key, results[key]))
+      for key in sorted(results):
+        print('%s: %s' % (key, results[key]))
+
+      print('tf time:', tf_end - tf_start)
+
+  elif FLAGS.estimator == 'sklearn':
+      print('---------  Next: sklearn RandomForestClassifier ---------')
+
+      skrf_start = time.time()
+
+      param_grid = [
+            {'n_estimators': [10, 30, 90], 'max_features': [15, 25, 35, 43]},
+            {'bootstrap': [False], 'n_estimators': [10, 30, 40], 'max_features': [16, 24, 43]}
+            ]
+
+      fc = RandomForestClassifier()
+      grid_search = GridSearchCV(fc, param_grid, cv=10,
+                                 scoring='accuracy')
+
+      grid_search.fit(np.concatenate([all_data.train, all_data.validation]),
+                      np.concatenate([all_labels.train, all_labels.validation]))
+      skrf_end = time.time()
+
+      print('Best params', grid_search.best_params_)
+      print('skRF time:', skrf_end - skrf_start)
+
+      for params, mean, std in grid_search.grid_scores_:
+          print(mean, std, params)
+
+      s = grid_search.score(X=all_data.test, y=all_labels.test)
+      print('Test score:', s)
 
 def main(_):
   train_and_eval(FLAGS.data)
@@ -112,6 +148,13 @@ if __name__ == '__main__':
         '--data',
         type=str,
         help='path to data file'
+  )
+
+  parser.add_argument(
+        '--estimator',
+        default='tensorflow',
+        type=str,
+        help='tensorflow or sklearn'
   )
 
   parser.add_argument(
